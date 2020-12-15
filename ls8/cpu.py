@@ -2,41 +2,76 @@
 
 import sys
 
+HLT = 0b00000001
+LDI = 0b10000010
+PRN = 0b01000111
+PUSH = 0b01000101
+MUL = 0b10100010
+POP = 0b01000110
+ADD = 0b10100000
+
 class CPU:
     """Main CPU class."""
 
     def __init__(self):
         """Construct a new CPU."""
-        pass
+        self.ram = [0] * 256
+        self.registers = [0] * 8
+        self.pc = 0
+        self.registers[7] = 0xF4  #244
+        self.flags = [0] * 8
+        self.branch_table = {
+            HLT: self.hlt,
+            LDI: self.ldi,
+            PRN: self.prn,
+            PUSH: self.push,
+            POP: self.pop,
+            MUL: self.alu,
+            ADD: self.alu
+        }
 
     def load(self):
         """Load a program into memory."""
+                # For now, we've just hardcoded a program:
 
+        if len(sys.argv) != 2:
+            print("Failed to pass both filenames")
+            print("Usage is python3 fileio.py [secondfilename.py]")
+            sys.exit()
+
+        
         address = 0
 
-        # For now, we've just hardcoded a program:
+        try:
+            with open(sys.argv[1]) as f:
+                for line in f:
+                    split_line = line.split("#")[0]
+                    stripped_split_line = split_line.strip()
 
-        program = [
-            # From print8.ls8
-            0b10000010, # LDI R0,8
-            0b00000000,
-            0b00001000,
-            0b01000111, # PRN R0
-            0b00000000,
-            0b00000001, # HLT
-        ]
+                    if stripped_split_line != "":
+                        command = int(stripped_split_line, 2)
+                        
+                        # load command into memory
+                        self.ram[address] = command
 
-        for instruction in program:
-            self.ram[address] = instruction
-            address += 1
+                        address += 1
+        except FileNotFoundError:
+            print(f"Error from {sys.argv[0]}: {sys.argv[1]} - Not Found")
+            sys.exit()
+            
+    def ram_read(self, MAR):  #MAR is memory address register
+        return self.ram[MAR]
 
+    def ram_write(self, MAR, MDR):  #memory data register
+        self.ram[MAR] = MDR
 
     def alu(self, op, reg_a, reg_b):
         """ALU operations."""
 
-        if op == "ADD":
-            self.reg[reg_a] += self.reg[reg_b]
-        #elif op == "SUB": etc
+        if op == ADD:
+            self.registers[reg_a] += self.registers[reg_b]
+        elif op == MUL:
+            self.registers[reg_a] *= self.registers[reg_b]
         else:
             raise Exception("Unsupported ALU operation")
 
@@ -62,4 +97,39 @@ class CPU:
 
     def run(self):
         """Run the CPU."""
-        pass
+        self.running = True
+
+        while self.running:
+            IR = self.ram_read(self.pc)  #Instruction Register
+            operand_a = self.ram_read(self.pc + 1)
+            operand_b = self.ram_read(self.pc + 2)
+            num_operands = IR >> 6
+            self.pc += 1 + num_operands
+            is_alu_op = ((IR >> 5) & 0b001) == 1 # gives truth value of 0 or 1 with masking
+            if is_alu_op:
+                self.alu(IR, operand_a, operand_b)
+            else:
+                self.branch_table[IR](operand_a, operand_b)
+                
+
+    def hlt(self, operand_a, operand_b):
+        self.running = False
+
+    def ldi(self, operand_a, operand_b):
+        self.registers[operand_a] = operand_b
+
+    def prn(self, operand_a, operand_b):
+        print(self.registers[operand_a])
+
+    def push(self, operand_a, operand_b):
+        self.registers[7] -= 1
+        value = self.registers[operand_a]
+        SP = self.registers[7] # Stack pointer
+        self.ram_write(SP, value)
+
+    def pop(self, operand_a, operand_b):
+        SP = self.registers[7]
+        value = self.ram_read(SP)
+        register_address = self.ram[self.pc + 1]
+        self.registers[operand_a] = value
+        self.registers[7] += 1
